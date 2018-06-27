@@ -2,6 +2,8 @@ import { DataLayer } from '@gooddata/gooddata-js';
 
 const { Uri: { isUri } } = DataLayer;
 
+const getQualifierKey = qualifierString => (isUri(qualifierString) ? 'uri' : 'identifier');
+
 export const createMeasureBucketItem = (qualifierString, localIdentifier, alias) => {
     const aliasProp = alias ? { alias } : {};
     return {
@@ -10,7 +12,7 @@ export const createMeasureBucketItem = (qualifierString, localIdentifier, alias)
             definition: {
                 measureDefinition: {
                     item: {
-                        [isUri(qualifierString) ? 'uri' : 'identifier']: qualifierString
+                        [getQualifierKey(qualifierString)]: qualifierString
                     }
                 }
             },
@@ -25,7 +27,7 @@ export const createAttributeBucketItem = (qualifierString, localIdentifier, alia
         visualizationAttribute: {
             localIdentifier: qualifierString,
             displayForm: {
-                [isUri(qualifierString) ? 'uri' : 'identifier']: qualifierString
+                [getQualifierKey(qualifierString)]: qualifierString
             }
         },
         ...aliasProp
@@ -36,7 +38,7 @@ export const createPositiveAttributeFilter = (qualifierString, values) => {
     return {
         positiveAttributeFilter: {
             displayForm: {
-                [isUri(qualifierString) ? 'uri' : 'identifier']: qualifierString
+                [getQualifierKey(qualifierString)]: qualifierString
             },
             in: values
         }
@@ -47,7 +49,7 @@ export const createNegativeAttributeFilter = (qualifierString, values) => {
     return {
         negativeAttributeFilter: {
             displayForm: {
-                [isUri(qualifierString) ? 'uri' : 'identifier']: qualifierString
+                [getQualifierKey(qualifierString)]: qualifierString
             },
             notIn: values
         }

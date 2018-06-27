@@ -27,10 +27,10 @@ import {
     isTreemap,
     parseValue,
     stringifyChartTypes,
-    unwrap
+    isBarChart
 } from '../utils/common';
 
-import { getChartProperties } from './highcharts/helpers';
+import { unwrap } from '../../../helpers/utils';
 
 import { getMeasureUriOrIdentifier, isDrillable } from '../utils/drilldownEventing';
 import { DEFAULT_COLOR_PALETTE, getLighterColor } from '../utils/color';

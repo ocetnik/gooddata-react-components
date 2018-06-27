@@ -9,10 +9,13 @@ import {
     SEGMENT,
     TREND,
     ATTRIBUTE,
+    ATTRIBUTES,
+    ROWS,
+    COLUMNS,
     MEASURES
  } from '../constants/bucketNames';
 
-function getDimensionTotals(bucket: VisualizationObject.IBucket): AFM.ITotalItem[] {
+export function getDimensionTotals(bucket: VisualizationObject.IBucket): AFM.ITotalItem[] {
     const bucketTotals = get(bucket, 'totals', []);
     return bucketTotals.map((total: VisualizationObject.IVisualizationTotal): AFM.ITotalItem => {
         return {
@@ -23,9 +26,50 @@ function getDimensionTotals(bucket: VisualizationObject.IBucket): AFM.ITotalItem
     });
 }
 
+export function getPivotTableDimensions(buckets: VisualizationObject.IBucket[]): AFM.IDimension[] {
+    const rowAttributes: VisualizationObject.IBucket = buckets
+        .find(
+            bucket => bucket.localIdentifier === ATTRIBUTE
+            || bucket.localIdentifier === ATTRIBUTES
+            || bucket.localIdentifier === ROWS
+        );
+
+    const columnAttributes: VisualizationObject.IBucket = buckets
+        .find(
+            bucket => bucket.localIdentifier === COLUMNS
+        );
+
+    const measures: VisualizationObject.IBucket = buckets
+        .find(bucket => bucket.localIdentifier === MEASURES);
+
+    const rowAttributesItemIdentifiers = get(rowAttributes, 'items', [])
+        .map((a: VisualizationObject.IVisualizationAttribute) =>
+            a.visualizationAttribute.localIdentifier);
+
+    const columnAttributesItemIdentifiers = get(columnAttributes, 'items', [])
+        .map((a: VisualizationObject.IVisualizationAttribute) =>
+            a.visualizationAttribute.localIdentifier);
+
+    const measuresItemIdentifiers =
+        get(measures, 'items.length') ? [MEASUREGROUP] : [];
+
+    const totals = getDimensionTotals(rowAttributes);
+    const totalsProp = totals.length ? { totals } : {};
+
+    return [{
+        itemIdentifiers: rowAttributesItemIdentifiers,
+        ...totalsProp
+    }, {
+        itemIdentifiers: [
+            ...columnAttributesItemIdentifiers,
+            ...measuresItemIdentifiers
+        ]
+    }];
+}
+
 export function getTableDimensions(buckets: VisualizationObject.IBucket[]): AFM.IDimension[] {
     const attributes: VisualizationObject.IBucket = buckets
-        .find(bucket => bucket.localIdentifier === ATTRIBUTE || bucket.localIdentifier === 'attributes');
+        .find(bucket => bucket.localIdentifier === ATTRIBUTE || bucket.localIdentifier === ATTRIBUTES);
 
     const measures: VisualizationObject.IBucket = buckets
         .find(bucket => bucket.localIdentifier === MEASURES);

@@ -75,7 +75,3 @@ export const stringifyChartTypes = () => Object.keys(VisualizationTypes).reduce(
     acc.push(VisualizationTypes[type]);
     return acc;
 }, []).join(', ');
-
-export function unwrap(wrappedObject: any) {
-    return wrappedObject[Object.keys(wrappedObject)[0]];
-}

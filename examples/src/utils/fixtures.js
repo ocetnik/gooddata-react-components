@@ -47,6 +47,7 @@ export const locationStateAttributeCaliforniaUri = `/gdc/md/${demoProjectId}/obj
 export const locationStateDisplayFormIdentifier = 'label.restaurantlocation.locationstate';
 export const menuCategoryAttributeDFIdentifier = 'label.menuitem.menucategory';
 export const menuItemNameAttributeDFIdentifier = 'label.menuitem.menuitemname';
+export const yearDateIdentifier = 'date.aam81lMifn6q';
 export const monthDateIdentifier = 'date.abm81lMifn6q';
 export const monthDateIdentifierJanuary = `/gdc/md/${demoProjectId}/obj/2071/elements?id=1`;
 export const tableVisualizationIdentifier = 'aatFRvXBdilm';
