@@ -9,44 +9,32 @@ export interface IGridHeader {
     field?: string;
     children?: IGridHeader[];
     render?: string;
+    valueGetter?: any;
+    cellRenderer?: any;
+}
+
+export interface IGridAdapterOptions {
+    makeRowGroups?: boolean;
+    addLoadingRenderer?: string;
 }
 
 export const FIELD_SEPARATOR = '|';
-
-// TODO: Move to typings in RAIL-909
-export function isAttributeHeaderItem(header: Execution.IResultHeaderItem):
-    header is Execution.IResultAttributeHeaderItem {
-    return (header as Execution.IResultAttributeHeaderItem).attributeHeaderItem !== undefined;
-}
-
-export function isMeasureHeaderItem(header: Execution.IResultHeaderItem):
-    header is Execution.IResultMeasureHeaderItem {
-    return (header as Execution.IResultMeasureHeaderItem).measureHeaderItem !== undefined;
-}
-
-export function isTotalHeaderItem(header: Execution.IResultHeaderItem):
-header is Execution.IResultTotalHeaderItem {
-    return (header as Execution.IResultTotalHeaderItem).totalHeaderItem !== undefined;
-}
-
-export function isAttributeHeader(header: Execution.IHeader):
-    header is Execution.IAttributeHeader {
-    return (header as Execution.IAttributeHeader).attributeHeader !== undefined;
-}
-
-export function isMeasureGroupHeader(header: Execution.IHeader):
-    header is Execution.IMeasureGroupHeader {
-    return (header as Execution.IMeasureGroupHeader).measureGroupHeader !== undefined;
-}
+export const DOT_PLACEHOLDER = '-DOT-';
 
 export const identifyHeader = (header: Execution.IResultHeaderItem, fieldPrefix = '') => {
-    if (isAttributeHeaderItem(header)) {
-        return `${fieldPrefix}a_${header.attributeHeaderItem.uri.split(/\/(\d*)\/elements\?id=/).slice(1).join('_')}`;
+    if (Execution.isAttributeHeaderItem(header)) {
+        return `${fieldPrefix}a_${
+            header.attributeHeaderItem.uri
+                .split(/\/(\d*)\/elements\?id=/)
+                .slice(1)
+                .join('_')
+                .replace(/\./g, DOT_PLACEHOLDER)
+        }`;
     }
-    if (isMeasureHeaderItem(header)) {
+    if (Execution.isMeasureHeaderItem(header)) {
         return `${fieldPrefix}m_${header.measureHeaderItem.order}`;
     }
-    if (isTotalHeaderItem(header)) {
+    if (Execution.isTotalHeaderItem(header)) {
         return `${fieldPrefix}t_${header.totalHeaderItem.type}`;
     }
     invariant(false, `Unknown header type: ${JSON.stringify(header)}`);
@@ -102,16 +90,20 @@ export const getColumnHeaders = (
     return hierarchy;
 };
 
-export const getRowHeaders = (rowDimensionHeaders: Execution.IHeader[]) => {
+export const getRowHeaders = (rowDimensionHeaders: Execution.IHeader[], makeRowGroups: boolean) => {
     return rowDimensionHeaders.map((headerItemWrapped: Execution.IHeader) => {
         const headerItem = unwrap(headerItemWrapped);
+        const rowGroupProps = makeRowGroups ? {
+            rowGroup: true,
+            hide: true
+        } : {};
         return {
             headerName: headerItem.name,
-            // Row dimensions must contain only attribute headers
-            field: `a_${headerItem.uri.split('/obj/')[1]}`
-            // Here we can turn on rowGrouping if we switch to the enterprise license
-            // rowGroup: true,
-            // hide: true
+            // Row dimensions must contain only attribute headers.
+            // Identifiers can not contain a dot character, because AGGrid cannot handle it.
+            // We could handle it with a custom renderer (works in RowLoadingElement)
+            field: `a_${headerItem.uri.split('/obj/')[1].replace(/\./g, DOT_PLACEHOLDER)}`,
+            ...rowGroupProps
         };
     });
 };
@@ -159,7 +151,15 @@ export const getMinimalRowData = (
         : Array(numberOfRowHeaderItems).fill([null]) as Execution.DataValue[][];
 };
 
-export const executionToAGGridAdapter = (executionResult: Execution.IExecutionResponses) => {
+export const executionToAGGridAdapter = (
+    executionResponses: Execution.IExecutionResponses,
+    options: IGridAdapterOptions = {}
+) => {
+    const {
+        makeRowGroups = false,
+        addLoadingRenderer = null
+    } = options;
+
     const {
         executionResponse: {
             dimensions
@@ -168,7 +168,7 @@ export const executionToAGGridAdapter = (executionResult: Execution.IExecutionRe
             data,
             headerItems
         }
-    } = executionResult;
+    } = executionResponses;
 
     const columnAttributeHeaderCount = dimensions[1]
         .headers.filter((header: Execution.IHeader) => (
@@ -179,10 +179,10 @@ export const executionToAGGridAdapter = (executionResult: Execution.IExecutionRe
     const groupColumnHeaders: IGridHeader[] = columnAttributeHeaderCount > 0 ? [{
         headerName: dimensions[1].headers
             .map((header: Execution.IHeader) => {
-                if (isAttributeHeader(header)) {
+                if (Execution.isAttributeHeader(header)) {
                     return header.attributeHeader.name;
                 }
-                if (isMeasureGroupHeader(header) && header.measureGroupHeader.items.length > 1) {
+                if (Execution.isMeasureGroupHeader(header) && header.measureGroupHeader.items.length > 1) {
                     return 'measures';
                 }
                 return null;
@@ -192,7 +192,12 @@ export const executionToAGGridAdapter = (executionResult: Execution.IExecutionRe
         children: columnHeaders
     }] : columnHeaders;
 
-    const rowHeaders: IGridHeader[] = getRowHeaders(dimensions[0].headers);
+    const rowHeaders: IGridHeader[] = getRowHeaders(dimensions[0].headers, makeRowGroups);
+
+    // Add loading indicator to the first column
+    if (addLoadingRenderer && rowHeaders.length > 0) {
+        rowHeaders[0].cellRenderer = addLoadingRenderer;
+    }
 
     const columnDefs: IGridHeader[] = [
         ...rowHeaders,
@@ -200,7 +205,7 @@ export const executionToAGGridAdapter = (executionResult: Execution.IExecutionRe
     ];
 
     const columnFields: string[] = getFields(headerItems[1]);
-    // AGTable execution should always return a two-dimensional array (Execution.DataValue[][])
+    // PivotTable execution should always return a two-dimensional array (Execution.DataValue[][])
     const minimalRowData: Execution.DataValue[][] = getMinimalRowData(data as Execution.DataValue[][], headerItems[0]);
     const rowData = (minimalRowData).map(
         (dataRow: Execution.DataValue[], dataRowIndex: number) =>
@@ -210,6 +215,5 @@ export const executionToAGGridAdapter = (executionResult: Execution.IExecutionRe
     return {
         columnDefs,
         rowData
-        // , dataSource: null as any
     };
 };

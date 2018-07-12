@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { VisualizationObject, AFM } from '@gooddata/typings';
+import { omit } from 'lodash';
+import { Subtract } from 'utility-types';
 
-import { AGTable as CoreAGTable } from './core/AGTable';
-import { Execute, IExecuteChildrenProps } from '../execution/Execute';
-import { ErrorComponent } from './simple/ErrorComponent';
-import { LoadingComponent } from './simple/LoadingComponent';
+import { PivotTable as CorePivotTable } from './core/PivotTable';
+import { dataSourceProvider } from './afm/DataSourceProvider';
 import { ICommonChartProps } from './core/base/BaseChart';
 import { convertBucketsToAFM } from '../helpers/conversion';
 import { getPivotTableDimensions } from '../helpers/dimensions';
@@ -33,13 +33,14 @@ export interface ITableProps extends ICommonChartProps, ITableBucketProps {
     totalsEditAllowed?: boolean;
 }
 
+type ITableNonBucketProps = Subtract<ITableProps, ITableBucketProps>;
 /**
- * [Table](http://sdk.gooddata.com/gooddata-ui/docs/table_component.html)
+ * TODO: Update link to documentation [PivotTable](http://sdk.gooddata.com/gooddata-ui/docs/table_component.html)
  * is a component with bucket props measures, attributes, totals, filters
  */
-export function AGTable(props: ITableProps): JSX.Element {
+export function PivotTable(props: ITableProps): JSX.Element {
 
-    const { projectId, measures, attributes, rows, columns, totals, sortBy, filters } = props;
+    const { measures, attributes, rows, columns, totals, sortBy, filters } = props;
 
     const buckets: VisualizationObject.IBucket[] = [
         {
@@ -62,32 +63,20 @@ export function AGTable(props: ITableProps): JSX.Element {
         }
     ];
 
-    // const newProps
-    //     = omit<ITableProps, ITableNonBucketProps>(props, ['measures', 'attributes', 'totals', 'filters']);
-
     const afm = convertBucketsToAFM(buckets, filters);
     const resultSpec = getResultSpec(buckets, sortBy, getPivotTableDimensions);
+    const getPivotTableDimensionsFromAfm = () => getPivotTableDimensions(buckets);
+    const PivotTableWithDatasource = dataSourceProvider(CorePivotTable, getPivotTableDimensionsFromAfm, 'PivotTable');
 
-    // TODO: create a pagable executor
-    // TODO: convert execute to dataSource
+    const newProps
+        = omit<ITableProps, ITableNonBucketProps>(props,
+            ['measures', 'attributes', 'rows', 'columns', 'totals', 'filters']);
+
     return (
-        <Execute projectId={projectId} afm={afm} resultSpec={resultSpec} >{
-        ({ error, isLoading, result }: IExecuteChildrenProps) => {
-            // tslint:disable-next-line:no-console
-
-            if (error) {
-                return (<ErrorComponent
-                    message="There was an error getting your execution"
-                    description={JSON.stringify(error, null, '  ')}
-                />);
-            }
-            if (isLoading) {
-                return <LoadingComponent />;
-            }
-
-            return (<CoreAGTable
-                executionResult={result}
-            />);
-        }}</Execute>
+        <PivotTableWithDatasource
+            {...newProps}
+            afm={afm}
+            resultSpec={resultSpec}
+        />
     );
 }

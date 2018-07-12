@@ -29,9 +29,14 @@ export function getDimensionTotals(bucket: VisualizationObject.IBucket): AFM.ITo
 export function getPivotTableDimensions(buckets: VisualizationObject.IBucket[]): AFM.IDimension[] {
     const rowAttributes: VisualizationObject.IBucket = buckets
         .find(
-            bucket => bucket.localIdentifier === ATTRIBUTE
-            || bucket.localIdentifier === ATTRIBUTES
-            || bucket.localIdentifier === ROWS
+            bucket => (
+                (
+                    bucket.localIdentifier === ATTRIBUTE
+                    || bucket.localIdentifier === ATTRIBUTES
+                    || bucket.localIdentifier === ROWS
+                )
+                && bucket.items.length > 0
+            )
         );
 
     const columnAttributes: VisualizationObject.IBucket = buckets

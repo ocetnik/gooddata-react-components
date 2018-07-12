@@ -38,7 +38,8 @@ extends React.Component<P, S> {
             ) : null;
         }
 
-        if (isLoading || !execution) {
+        // do not render LoadingComponent if without execution but with getPage
+        if ((isLoading || !execution) && !this.props.getPage) {
             return LoadingComponent ? <LoadingComponent /> : null;
         }
 
