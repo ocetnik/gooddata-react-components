@@ -52,6 +52,7 @@ export interface IGridParams {
 export interface ILoadingRendererProps {
     node: {
         id: any;
+        rowPinned?: string
     };
     data: any[];
     colDef: {
@@ -86,13 +87,15 @@ export const getGridDataSource = (
                     if (!execution) {
                         return null;
                     }
-                    const { columnDefs, rowData } = executionToAGGridAdapter(
+                    const { columnDefs, rowData, totals } = executionToAGGridAdapter(
                         execution,
                         { addLoadingRenderer: 'loadingRenderer' }
                     );
+                    console.log('totals', totals);
                     const lastRow = execution.executionResult.paging.total[0];
                     successCallback(rowData, lastRow);
                     onSuccess(execution, columnDefs);
+                    console.log('execution', execution);
                     return execution;
                 }
             );
@@ -160,6 +163,24 @@ export class PivotTableInner extends
         this.gridApi.setDatasource(this.gridDataSource);
     }
 
+    public createData() { // TODO remove
+        // console.log('ttt', this.gridDataSource.getRows());
+        // console.log('ttt', execution.executionResult.totals);
+
+        return [
+            {
+                'a_4-DOT-df': 'SUM',
+                'm_0': 'b',
+                'm_1': 'c'
+            },
+            {
+                'a_4-DOT-df': 'AVG',
+                'm_0': 'b',
+                'm_1': 'c'
+            }
+        ];
+    }
+
     public renderVisualization() {
         const { columnDefs, rowData } = this.state;
 
@@ -184,6 +205,7 @@ export class PivotTableInner extends
             infiniteInitialRowCount: PAGE_SIZE,
             maxBlocksInCache: 10,
             onGridReady: this.onGridReady,
+            pinnedBottomRowData: this.createData(),
 
             // Custom renderers
             frameworkComponents: {
@@ -192,10 +214,16 @@ export class PivotTableInner extends
                 loadingRenderer: null as any
             }
         };
-        const RowLoadingElement = (props: ILoadingRendererProps) =>
-            (props.node.id !== undefined
+        const RowLoadingElement = (props: ILoadingRendererProps) => {
+            // console.log('-----');
+            // console.log('props.node', props.node);
+            // console.log('props.node.id', props.node.id);
+            // console.log('props.data', props.data);
+            // console.log('-----');
+            return (props.node.id !== undefined || props.node.rowPinned
                 ? <span>{props.data[props.colDef.field]}</span>
                 : <LoadingComponent width={36} imageHeight={8} height={26} speed={2} />);
+        };
 
         // this cannot be set directly in gridOptions because of incompatible types with AgGridReact types
         gridOptions.frameworkComponents.loadingRenderer = RowLoadingElement;

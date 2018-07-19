@@ -166,7 +166,8 @@ export const executionToAGGridAdapter = (
         },
         executionResult: {
             data,
-            headerItems
+            headerItems,
+            totals
         }
     } = executionResponses;
 
@@ -214,6 +215,7 @@ export const executionToAGGridAdapter = (
 
     return {
         columnDefs,
-        rowData
+        rowData,
+        totals
     };
 };

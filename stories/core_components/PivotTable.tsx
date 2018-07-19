@@ -11,7 +11,9 @@ import {
     ATTRIBUTE_2,
     MEASURE_1,
     MEASURE_1_WITH_ALIAS,
-    MEASURE_2
+    MEASURE_2,
+    TOTAL_M1_A1,
+    TOTAL_M2_A1
 } from '../data/componentProps';
 
 function logTotalsChange(data: any) {
@@ -103,6 +105,38 @@ storiesOf('Core components/PivotTable', module)
             </div>
         )
     ))
+    .add('with table totals', () => (
+        screenshotWrap(
+            <div style={wrapperStyle}>
+                <PivotTable
+                    projectId="storybook"
+                    measures={[MEASURE_1, MEASURE_2]}
+                    attributes={[ATTRIBUTE_1]}
+                    totals={[TOTAL_M1_A1, TOTAL_M2_A1]}
+                    onError={onErrorHandler}
+                    LoadingComponent={null}
+                    ErrorComponent={null}
+                />
+            </div>
+        )
+    ))
+    .add('with table totals editable', () => (
+        screenshotWrap(
+            <div style={wrapperStyle}>
+                <PivotTable
+                    projectId="storybook"
+                    measures={[MEASURE_1, MEASURE_2]}
+                    attributes={[ATTRIBUTE_1]}
+                    totals={[TOTAL_M1_A1, TOTAL_M2_A1]}
+                    totalsEditAllowed={true}
+                    onError={onErrorHandler}
+                    pushData={logTotalsChange}
+                    LoadingComponent={null}
+                    ErrorComponent={null}
+                />
+            </div>
+        )
+    ))
     .add('table with resizing', () => (
         screenshotWrap(
             <div
@@ -120,6 +154,8 @@ storiesOf('Core components/PivotTable', module)
                     projectId="storybook"
                     measures={[MEASURE_1, MEASURE_2]}
                     attributes={[ATTRIBUTE_2, ATTRIBUTE_1]}
+                    totals={[TOTAL_M1_A1, TOTAL_M2_A1]}
+                    totalsEditAllowed={true}
                     onError={onErrorHandler}
                     pushData={logTotalsChange}
                     LoadingComponent={null}
