@@ -19,6 +19,9 @@ import * as fixtures from '../../../stories/test_data/fixtures';
 import { Execution } from '@gooddata/typings/dist';
 import { IDrillItem } from '../../interfaces/DrillEvents';
 import { IGridHeader } from '../../interfaces/AGGrid';
+import { createIntlMock } from '../../components/visualizations/utils/intlUtils';
+
+const intl = createIntlMock();
 
 describe('identifyHeader', () => {
     it('should return correct field key for an attribute header', () => {
@@ -340,18 +343,26 @@ describe('assignSorting', () => {
 describe('executionToAGGridAdapter', () => {
     it('should return grid data for executionResult', () => {
         expect(
-            executionToAGGridAdapter({
-                executionResponse: fixtures.pivotTableWithColumnAndRowAttributes.executionResponse,
-                executionResult: fixtures.pivotTableWithColumnAndRowAttributes.executionResult
-            })
+            executionToAGGridAdapter(
+                {
+                    executionResponse: fixtures.pivotTableWithColumnAndRowAttributes.executionResponse,
+                    executionResult: fixtures.pivotTableWithColumnAndRowAttributes.executionResult
+                },
+                {},
+                intl
+            )
         ).toMatchSnapshot();
     });
     it('should return grid data for executionResult with rowGroups and loadingRenderer', () => {
         expect(
-            executionToAGGridAdapter({
-                executionResponse: fixtures.barChartWithStackByAndOnlyOneStack.executionResponse,
-                executionResult: fixtures.barChartWithStackByAndOnlyOneStack.executionResult
-            })
+            executionToAGGridAdapter(
+                {
+                    executionResponse: fixtures.barChartWithStackByAndOnlyOneStack.executionResponse,
+                    executionResult: fixtures.barChartWithStackByAndOnlyOneStack.executionResult
+                },
+                {},
+                intl
+            )
         ).toMatchSnapshot();
     });
 });

@@ -26,6 +26,7 @@ import {
     MEASURE_COLUMN,
     FIELD_SEPARATOR,
     ID_SEPARATOR,
+    ROW_TOTAL,
     assortDimensionHeaders
 } from '../../helpers/agGrid';
 
@@ -61,6 +62,10 @@ import {
 import { VisualizationTypes } from '../../constants/visualizationTypes';
 import { IColumnDefOptions, IGridCellEvent, IGridHeader, IGridRow } from '../../interfaces/AGGrid';
 import * as invariant from 'invariant';
+
+import InjectedIntlProps = ReactIntl.InjectedIntlProps;
+import InjectedIntl = ReactIntl.InjectedIntl;
+import { AVAILABLE_TOTALS } from '../visualizations/table/totals/utils';
 
 export interface IPivotTableProps extends ICommonChartProps {
     resultSpec?: AFM.IResultSpec;
@@ -99,7 +104,7 @@ export const getDrillRowData = (leafColumnDefs: ColDef[], rowData: {[key: string
             if (type === MEASURE_COLUMN) {
                 return [...drillRow, rowData[colDef.field]];
             }
-            const drillItem = rowData.drillItemMap[colDef.field];
+            const drillItem = get<any, IDrillableItem>(rowData, ['drillItemMap', colDef.field]);
             if (drillItem && (type === COLUMN_ATTRIBUTE_COLUMN || type === ROW_ATTRIBUTE_COLUMN)) {
                 return [...drillRow, {
                     id: drillItem.uri.split('?id=')[1],
@@ -169,7 +174,7 @@ export const getSortItemByField = (
     const lastField = fields[fields.length - 1];
     const [fieldType, fieldId]: any = lastField.split(ID_SEPARATOR);
     invariant(fieldType, `could not determine field type from ${colId}`);
-    invariant(fieldId, `could not determine field type from ${colId}`);
+    invariant(fieldId, `could not determine field id from ${colId}`);
 
     const { attributeHeaders, measureHeaderItems } = assortDimensionHeaders(dimensions);
 
@@ -222,6 +227,8 @@ export const getGridDataSource = (
     getPage: IGetPage,
     getExecution: () => Execution.IExecutionResponses,
     onSuccess: (execution: Execution.IExecutionResponses, columnDefs: IGridHeader[]) => void,
+    getGridApi: () => any,
+    intl: InjectedIntl,
     columnDefOptions: IColumnDefOptions = {}
 ): IDatasource => ({
     getRows: ({ startRow, endRow, successCallback, sortModel }: IGetRowsParams) => {
@@ -254,9 +261,10 @@ export const getGridDataSource = (
                     if (!execution) {
                         return null;
                     }
-                    const { columnDefs, rowData } = executionToAGGridAdapter(
+                    const { columnDefs, rowData, rowTotals } = executionToAGGridAdapter(
                         execution,
                         resultSpecWithSorting,
+                        intl,
                         {
                             addLoadingRenderer: 'loadingRenderer',
                             columnDefOptions
@@ -266,8 +274,9 @@ export const getGridDataSource = (
                     // Backend returns incorrectly total: [1, N], when count: [0, N] and offset: [0, N]
                     const lastRow = offset[0] === 0 && count[0] === 0 ? 0 : total[0];
                     onSuccess(execution, columnDefs);
-                    // There can never be more rows than maximum of offset and count
                     successCallback(rowData, lastRow);
+                    // set totals
+                    getGridApi().setPinnedBottomRowData(rowTotals);
 
                     return execution;
                 }
@@ -276,7 +285,7 @@ export const getGridDataSource = (
 });
 
 export const RowLoadingElement = (props: ICellRendererParams) =>
-    (props.node.id !== undefined
+    (props.node.id !== undefined || props.node.rowPinned
         ? <span>{props.data[props.colDef.field]}</span>
         : <LoadingComponent width={36} imageHeight={8} height={26} speed={2} />);
 
@@ -316,7 +325,7 @@ export const getDrillIntersection = (
 
 export class PivotTableInner extends
         BaseVisualization<
-            IPivotTableProps & ILoadingInjectedProps & IDataSourceProviderInjectedProps,
+            IPivotTableProps & ILoadingInjectedProps & IDataSourceProviderInjectedProps & InjectedIntlProps,
             IPivotTableState
         > {
     public static defaultProps: Partial<IPivotTableProps & ILoadingInjectedProps & IDataSourceProviderInjectedProps> = {
@@ -376,7 +385,8 @@ export class PivotTableInner extends
         const afm: AFM.IAfm = dataSource.getAfm();
 
         let hasDrillableHeader = false;
-        if (drillableItems.length !== 0) {
+        const isRowTotal = get(cellClassParams, ['data', 'type', ROW_TOTAL]);
+        if (drillableItems.length !== 0 && !isRowTotal) {
             const rowDrillItem =
                 get<CellClassParams, IDrillableItem>(cellClassParams, ['data', 'drillItemMap', colDef.field]);
             const drillItems = rowDrillItem ? [...colDef.drillItems, rowDrillItem] : colDef.drillItems;
@@ -390,7 +400,8 @@ export class PivotTableInner extends
             classList,
             getCellClassNames(rowIndex, colDef.index, hasDrillableHeader),
             colDef.index !== undefined ? `gd-column-index-${colDef.index}` : null,
-            colDef.measureIndex !== undefined ? `gd-column-measure-${colDef.measureIndex}` : null
+            colDef.measureIndex !== undefined ? `gd-column-measure-${colDef.measureIndex}` : null,
+            isRowTotal ? 'gd-row-total' : null
         );
         return className;
     }
@@ -434,8 +445,18 @@ export class PivotTableInner extends
                 });
             }
         };
-        this.gridDataSource = getGridDataSource(resultSpec, getPage, this.getExecution, onSuccess);
+        this.gridDataSource = getGridDataSource(
+            resultSpec,
+            getPage,
+            this.getExecution,
+            onSuccess,
+            this.getGridApi,
+            this.props.intl,
+            {}
+        );
     }
+
+    public getGridApi = () => this.gridApi;
 
     public onGridReady = (params: GridReadyEvent) => {
         this.gridApi = params.api;
@@ -453,13 +474,15 @@ export class PivotTableInner extends
         const afm: AFM.IAfm = this.props.dataSource.getAfm();
 
         const { colDef, rowIndex } = cellEvent;
-        const rowDrillItem = get<any, IDrillableItem>(cellEvent, ['data', 'drillItemMap', colDef.field]);
+        // totals do not have drillItemMap
+        const isRowTotal = get<IGridCellEvent, string>(cellEvent, ['data', 'type', ROW_TOTAL]);
+        const rowDrillItem = get<IGridCellEvent, IDrillableItem>(cellEvent, ['data', 'drillItemMap', colDef.field]);
         const drillItems = rowDrillItem ? [...colDef.drillItems, rowDrillItem] : colDef.drillItems;
         const drillableHeaders = drillItems
             .filter(
                 (drillItem: IDrillItem) => isDrillable(drillableItems, drillItem, afm)
             );
-        if (drillableHeaders.length === 0) {
+        if (isRowTotal || drillableHeaders.length === 0) {
             return false;
         }
 
@@ -522,16 +545,30 @@ export class PivotTableInner extends
 
             // this provides persistent row selection (if enabled)
             getRowNodeId: (item) => {
-                return Object.keys(item.drillItemMap).map(
-                    key => `${key}${ID_SEPARATOR}${item.drillItemMap[key].uri.split('elements?id=').reverse()[0]}`
-                ).join(FIELD_SEPARATOR);
+                return item.drillItemMap
+                    ? Object.keys(item.drillItemMap).map(
+                        key => `${key}${ID_SEPARATOR}${item.drillItemMap[key].uri.split('elements?id=').reverse()[0]}`
+                    ).join(FIELD_SEPARATOR)
+                    : undefined;
             },
 
             // Column types
             columnTypes: {
                 [ROW_ATTRIBUTE_COLUMN]: {
                     cellClass: this.getCellClass('gd-row-attribute-column'),
-                    headerClass: this.getHeaderClass('gd-row-attribute-column-header')
+                    headerClass: this.getHeaderClass('gd-row-attribute-column-header'),
+                    colSpan: (params: any) => {
+                        if (
+                            // params.data is undefined when rows are in loading state
+                            params.data &&
+                            params.data.colSpan &&
+                            // TODO we need to provide types of aggregation (constants)
+                            AVAILABLE_TOTALS.find(item => item === params.data[params.data.colSpan.headerKey])
+                        ) {
+                            return params.data.colSpan.count;
+                        }
+                        return 1;
+                    }
                 },
                 [COLUMN_ATTRIBUTE_COLUMN]: {
                     cellClass: this.getCellClass('gd-column-attribute-column'),

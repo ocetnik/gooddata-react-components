@@ -2,12 +2,14 @@ import { Execution, AFM } from '@gooddata/typings';
 import * as invariant from 'invariant';
 import range = require('lodash/range');
 import get = require('lodash/get');
+import zipObject = require('lodash/zipObject');
 
 import { unwrap } from './utils';
 import { IDrillItem } from '../interfaces/DrillEvents';
 import { IGridHeader, IColumnDefOptions, IGridRow, IGridAdapterOptions } from '../interfaces/AGGrid';
 import { ColDef } from 'ag-grid';
 import { getTreeLeaves } from '../components/core/PivotTable';
+import InjectedIntl = ReactIntl.InjectedIntl;
 
 export const ROW_ATTRIBUTE_COLUMN = 'ROW_ATTRIBUTE_COLUMN';
 export const COLUMN_ATTRIBUTE_COLUMN = 'COLUMN_ATTRIBUTE_COLUMN';
@@ -16,6 +18,7 @@ export const FIELD_SEPARATOR = '-';
 export const FIELD_SEPARATOR_PLACEHOLDER = 'DASH';
 export const ID_SEPARATOR = '_';
 export const DOT_PLACEHOLDER = 'DOT';
+export const ROW_TOTAL = 'rowTotal';
 
 export const sanitizeField = (field: string) => (
     // Identifiers can not contain a dot character, because AGGrid cannot handle it.
@@ -245,6 +248,61 @@ export const getRow = (
     return row;
 };
 
+export const getRowTotals = (
+    totals: any,
+    columnKeys: string[],
+    headers: Execution.IHeader[],
+    intl: InjectedIntl
+) => {
+    if (!totals) {
+        return null;
+    }
+
+    return totals[0].map((totalRow: string[], totalIndex: number) => {
+        const attributeKeys: string[] = [];
+        const measureKeys: string[] = [];
+
+        // assort keys by type
+        columnKeys.filter((key: any) => {
+            const currentKey = key.split(FIELD_SEPARATOR).pop();
+            const fieldType = currentKey.split(ID_SEPARATOR)[0];
+            if (fieldType === 'a') {
+                attributeKeys.push(currentKey);
+            }
+            if (fieldType === 'm') {
+                measureKeys.push(key);
+            }
+        });
+
+        const [totalAttributeKey] = attributeKeys;
+        const totalAttributeId: string = totalAttributeKey.split(ID_SEPARATOR).pop();
+
+        const totalHeader: Execution.IAttributeHeader = headers.find(
+            (header: Execution.IHeader) =>
+                Execution.isAttributeHeader(header)
+                && header.attributeHeader.uri.split('/').pop() === totalAttributeId
+        ) as Execution.IAttributeHeader;
+
+        invariant(totalHeader, `Could not find header for ${totalAttributeKey}`);
+
+        const measureCells = zipObject(measureKeys, totalRow);
+
+        const totalName = totalHeader.attributeHeader.totalItems[totalIndex].totalHeaderItem.name;
+
+        return {
+            colSpan: {
+                count: attributeKeys.length,
+                headerKey: totalAttributeKey
+            },
+            ...measureCells,
+            [totalAttributeKey]: intl.formatMessage({ id: `visualizations.totals.dropdown.title.${totalName}` }),
+            type: {
+                [ROW_TOTAL]: true
+            }
+        };
+    });
+};
+
 export const getMinimalRowData = (
     data: Execution.DataValue[][],
     rowHeaderItems: Execution.IResultHeaderItem[][]
@@ -290,6 +348,7 @@ export const assignSorting = (colDef: ColDef, sortingMap: {[key: string]: string
 export const executionToAGGridAdapter = (
     executionResponses: Execution.IExecutionResponses,
     resultSpec: AFM.IResultSpec = {},
+    intl: InjectedIntl,
     options: IGridAdapterOptions = {}
 ) => {
     const {
@@ -304,7 +363,8 @@ export const executionToAGGridAdapter = (
         },
         executionResult: {
             data,
-            headerItems
+            headerItems,
+            totals
         }
     } = executionResponses;
 
@@ -393,6 +453,7 @@ export const executionToAGGridAdapter = (
     }
 
     const columnFields: string[] = getFields(headerItems[1]);
+    const rowFields: string[] = rowHeaders.map(header => header.field);
     // PivotTable execution should always return a two-dimensional array (Execution.DataValue[][])
     const minimalRowData: Execution.DataValue[][] = getMinimalRowData(data as Execution.DataValue[][], headerItems[0]);
     const rowData = (minimalRowData).map(
@@ -400,8 +461,12 @@ export const executionToAGGridAdapter = (
             getRow(dataRow, dataRowIndex, columnFields, rowHeaders, headerItems[0])
     );
 
+    const columnKeys = [...rowFields, ...columnFields];
+    const rowTotals = getRowTotals(totals, columnKeys, dimensions[0].headers, intl);
+
     return {
         columnDefs,
-        rowData
+        rowData,
+        rowTotals
     };
 };

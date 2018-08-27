@@ -148,3 +148,11 @@ export const createMeasureSortItem = (measureIdentifier, direction = 'desc', ...
         }
     };
 };
+
+export const createColumnTotal = (measureLocalIdentifier, attributeLocalIdentifier, type = 'sum') => {
+    return {
+        measureIdentifier: measureLocalIdentifier,
+        type,
+        attributeIdentifier: attributeLocalIdentifier
+    };
+};
