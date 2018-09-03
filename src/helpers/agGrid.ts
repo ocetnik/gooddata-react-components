@@ -1,4 +1,4 @@
-import { Execution } from '@gooddata/typings';
+import { Execution, AFM } from '@gooddata/typings';
 import * as invariant from 'invariant';
 import range = require('lodash/range');
 import get = require('lodash/get');
@@ -6,6 +6,7 @@ import get = require('lodash/get');
 import { unwrap } from './utils';
 import { IDrillItem } from '../interfaces/DrillEvents';
 import { IGridHeader, IColumnDefOptions, IGridRow, IGridAdapterOptions } from '../interfaces/AGGrid';
+import { ColDef } from 'ag-grid';
 import { getTreeLeaves } from '../components/core/PivotTable';
 
 export const ROW_ATTRIBUTE_COLUMN = 'ROW_ATTRIBUTE_COLUMN';
@@ -13,6 +14,7 @@ export const COLUMN_ATTRIBUTE_COLUMN = 'COLUMN_ATTRIBUTE_COLUMN';
 export const MEASURE_COLUMN = 'MEASURE_COLUMN';
 export const FIELD_SEPARATOR = '-';
 export const FIELD_SEPARATOR_PLACEHOLDER = 'DASH';
+export const ID_SEPARATOR = '_';
 export const DOT_PLACEHOLDER = 'DOT';
 
 export const sanitizeField = (field: string) => (
@@ -30,15 +32,15 @@ export const identifyHeader = (header: Execution.IResultHeaderItem, fieldPrefix 
                 header.attributeHeaderItem.uri
                     .split(/\/(\d*)\/elements\?id=/)
                     .slice(1)
-                    .join('_')
+                    .join(ID_SEPARATOR)
             )
         }`;
     }
     if (Execution.isMeasureHeaderItem(header)) {
-        return `${fieldPrefix}m_${header.measureHeaderItem.order}`;
+        return `${fieldPrefix}m${ID_SEPARATOR}${header.measureHeaderItem.order}`;
     }
     if (Execution.isTotalHeaderItem(header)) {
-        return `${fieldPrefix}t_${header.totalHeaderItem.type}`;
+        return `${fieldPrefix}t${ID_SEPARATOR}${header.totalHeaderItem.type}`;
     }
     invariant(false, `Unknown header type: ${JSON.stringify(header)}`);
 };
@@ -192,7 +194,7 @@ export const getRowHeaders = (
             headerName: headerItem.name,
             type: ROW_ATTRIBUTE_COLUMN,
             // Row dimension must contain only attribute headers.
-            field: `a_${sanitizeField(headerItem.uri.split('/obj/')[1])}`,
+            field: `a${ID_SEPARATOR}${sanitizeField(headerItem.uri.split('/obj/')[1])}`,
             drillItems: [drillableItem],
             ...rowGroupProps,
             ...columnDefOptions
@@ -256,8 +258,38 @@ export const getMinimalRowData = (
         : Array(numberOfRowHeaderItems).fill([null]) as Execution.DataValue[][];
 };
 
+export const assortDimensionHeaders = (dimensions: Execution.IResultDimension[]) => {
+    const dimensionHeaders: Execution.IHeader[] = dimensions.reduce(
+        (headers: Execution.IHeader[], dimension: Execution.IResultDimension) => (
+            [...headers, ...dimension.headers]
+        ),
+        []
+    );
+    const attributeHeaders: Execution.IAttributeHeader[] = [];
+    const measureHeaderItems: Execution.IMeasureHeaderItem[] = [];
+    dimensionHeaders.forEach((dimensionHeader: Execution.IHeader) => {
+        if (Execution.isAttributeHeader(dimensionHeader)) {
+            attributeHeaders.push(dimensionHeader);
+        } else if (Execution.isMeasureGroupHeader(dimensionHeader)) {
+            measureHeaderItems.push(...dimensionHeader.measureGroupHeader.items);
+        }
+    });
+    return {
+        attributeHeaders,
+        measureHeaderItems
+    };
+};
+
+export const assignSorting = (colDef: ColDef, sortingMap: {[key: string]: string}): void => {
+    const direction = sortingMap[colDef.field];
+    if (direction) {
+        colDef.sort = direction;
+    }
+};
+
 export const executionToAGGridAdapter = (
     executionResponses: Execution.IExecutionResponses,
+    resultSpec: AFM.IResultSpec = {},
     options: IGridAdapterOptions = {}
 ) => {
     const {
@@ -303,12 +335,39 @@ export const executionToAGGridAdapter = (
     const rowHeaders: IGridHeader[]
         = getRowHeaders(dimensions[0].headers, columnDefOptions, makeRowGroups);
 
-    // Add loading indicator to the first column
-    if (addLoadingRenderer && rowHeaders.length > 0) {
-        rowHeaders[0].cellRenderer = addLoadingRenderer;
-    }
-
-    // assign indexes
+    // build sortingMap from resultSpec.sorts
+    const sorting = resultSpec.sorts || [];
+    const sortingMap = {};
+    const { attributeHeaders, measureHeaderItems } = assortDimensionHeaders(dimensions);
+    sorting.forEach((sortItem) => {
+        if (AFM.isAttributeSortItem(sortItem)) {
+            const localIdentifier = sortItem.attributeSortItem.attributeIdentifier;
+            // find response header by localIdentifier
+            const sortHeader = attributeHeaders
+                .find(header => header.attributeHeader.localIdentifier === localIdentifier);
+            const key = `a_${sortHeader.attributeHeader.uri.split('/').pop()}`;
+            sortingMap[key] = sortItem.attributeSortItem.direction;
+        }
+        if (AFM.isMeasureSortItem(sortItem)) {
+            const keys: string[] = [];
+            sortItem.measureSortItem.locators.map((locator) => {
+                if (AFM.isMeasureLocatorItem(locator)) {
+                    const measureSortHeaderIndex = measureHeaderItems
+                        .findIndex(measureHeaderItem => measureHeaderItem.measureHeaderItem.localIdentifier
+                            === locator.measureLocatorItem.measureIdentifier);
+                    keys.push(`m_${measureSortHeaderIndex}`);
+                } else {
+                    const key = `a_${locator.attributeLocatorItem.element
+                        .split(/\/(\d*)\/elements\?id=/)
+                        .slice(1)
+                        .join(ID_SEPARATOR)}`;
+                    keys.push(key);
+                }
+            });
+            sortingMap[keys.join(FIELD_SEPARATOR)] = sortItem.measureSortItem.direction;
+        }
+    });
+    // assign sorting and indexes
     const columnDefs: IGridHeader[] = [
         ...rowHeaders,
         ...groupColumnHeaders
@@ -317,11 +376,21 @@ export const executionToAGGridAdapter = (
             // tslint:disable-next-line:variable-name
             getTreeLeaves(column).forEach((leafColumn, leafColumnIndex) => {
                 leafColumn.index = index + leafColumnIndex;
+                assignSorting(leafColumn, sortingMap);
             });
         }
         column.index = index;
+        assignSorting(column, sortingMap);
         return column;
     });
+
+    // Add loading indicator to the first column
+    if (addLoadingRenderer) {
+        const leafColumnDefs = getTreeLeaves(columnDefs);
+        if (leafColumnDefs.length > 0) {
+            leafColumnDefs[0].cellRenderer = addLoadingRenderer;
+        }
+    }
 
     const columnFields: string[] = getFields(headerItems[1]);
     // PivotTable execution should always return a two-dimensional array (Execution.DataValue[][])

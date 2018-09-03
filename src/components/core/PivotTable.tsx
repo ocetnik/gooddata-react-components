@@ -23,7 +23,10 @@ import {
     executionToAGGridAdapter,
     ROW_ATTRIBUTE_COLUMN,
     COLUMN_ATTRIBUTE_COLUMN,
-    MEASURE_COLUMN
+    MEASURE_COLUMN,
+    FIELD_SEPARATOR,
+    ID_SEPARATOR,
+    assortDimensionHeaders
 } from '../../helpers/agGrid';
 
 import { LoadingComponent } from '../simple/LoadingComponent';
@@ -57,11 +60,13 @@ import {
 
 import { VisualizationTypes } from '../../constants/visualizationTypes';
 import { IColumnDefOptions, IGridCellEvent, IGridHeader, IGridRow } from '../../interfaces/AGGrid';
+import * as invariant from 'invariant';
 
 export interface IPivotTableProps extends ICommonChartProps {
     resultSpec?: AFM.IResultSpec;
     dataSource: IDataSource;
     totalsEditAllowed?: boolean;
+    onSortChange?: (sortBy: AFM.SortItem[]) => AFM.SortItem[];
     getPage: IGetPage;
     pageSize?: number;
 }
@@ -152,15 +157,92 @@ export const getTreeLeaves = (tree: any, getChildren = (node: any) => node && no
     return leaves;
 };
 
+export const getSortItemByField = (
+    execution: Execution.IExecutionResponses,
+    colId: string,
+    direction: 'asc' | 'desc'
+) => {
+    const dimensions: Execution.IResultDimension[] = execution.executionResponse.dimensions;
+    // sorting on column attribute measures will return colId like these 'a_2009_4-a_2071_12-m_3', 'a_2009'
+    // we need the last field 'm_3' or 'a_2009'
+    const fields = colId.split(FIELD_SEPARATOR);
+    const lastField = fields[fields.length - 1];
+    const [fieldType, fieldId]: any = lastField.split(ID_SEPARATOR);
+    invariant(fieldType, `could not determine field type from ${colId}`);
+    invariant(fieldId, `could not determine field type from ${colId}`);
+
+    const { attributeHeaders, measureHeaderItems } = assortDimensionHeaders(dimensions);
+
+    if (fieldType === 'a') {
+        for (const header of attributeHeaders) {
+            if (header.attributeHeader.uri.split('/').reverse()[0] === fieldId) {
+                return {
+                    attributeSortItem: {
+                        direction,
+                        attributeIdentifier: header.attributeHeader.localIdentifier
+                    }
+                };
+            }
+        }
+    } else if (fieldType === 'm') {
+        const headerItem = measureHeaderItems[parseInt(fieldId, 10)];
+        const attributeLocators = fields.slice(0, -1).map((attributeField: string) => {
+            const [, attributeId, attributeValueId] = attributeField.match(/a_(\d*)_(\d*)/);
+            const attributeHeaderMatch = attributeHeaders.find((attributeHeader: Execution.IAttributeHeader) => {
+                return attributeHeader.attributeHeader.formOf.uri.split('/').reverse()[0] === attributeId;
+            });
+            invariant(attributeHeaderMatch, `Could not find matching attribute header to field ${attributeField}`);
+            return {
+                attributeLocatorItem: {
+                    attributeIdentifier: attributeHeaderMatch.attributeHeader.localIdentifier,
+                    element: `${attributeHeaderMatch.attributeHeader.formOf.uri}/elements?id=${attributeValueId}`
+                }
+            };
+        });
+        return {
+            measureSortItem: {
+                direction,
+                // Type: LocatorItem[]
+                locators: [
+                    ...attributeLocators,
+                    {
+                        measureLocatorItem: {
+                            measureIdentifier: headerItem.measureHeaderItem.localIdentifier
+                        }
+                    }
+                ]
+            }
+        };
+    }
+    invariant(false, `could not find header matching ${colId}`);
+};
+
 export const getGridDataSource = (
     resultSpec: AFM.IResultSpec,
     getPage: IGetPage,
+    getExecution: () => Execution.IExecutionResponses,
     onSuccess: (execution: Execution.IExecutionResponses, columnDefs: IGridHeader[]) => void,
     columnDefOptions: IColumnDefOptions = {}
-) => ({
-    getRows: ({ startRow, endRow, successCallback }: IGetRowsParams) => {
+): IDatasource => ({
+    getRows: ({ startRow, endRow, successCallback, sortModel }: IGetRowsParams) => {
+        const execution = getExecution();
+        // If execution is null, this means this is a fresh dataSource and we should ignore current sortModel
+        const resultSpecWithSorting = (sortModel.length > 0 && execution)
+            ? {
+                ...resultSpec,
+                // override sorting based on sortModel
+                sorts: sortModel.map((sortModelItem: any) => {
+                    // get attribute or measure by field
+                    const { colId, sort } = sortModelItem;
+                    const sortHeader = getSortItemByField(execution, colId, sort);
+                    invariant(sortHeader, `unable to find sort item by field ${colId}`);
+                    return sortHeader;
+                })
+            }
+            : resultSpec;
+
         const pagePromise = getPage(
-            resultSpec,
+            resultSpecWithSorting,
             // column limit defaults to SERVERSIDE_COLUMN_LIMIT (1000), because 1000 columns is hopefully enough.
             [endRow - startRow, undefined],
             // column offset defaults to 0, because we do not support horizontal paging yet
@@ -174,14 +256,19 @@ export const getGridDataSource = (
                     }
                     const { columnDefs, rowData } = executionToAGGridAdapter(
                         execution,
+                        resultSpecWithSorting,
                         {
                             addLoadingRenderer: 'loadingRenderer',
                             columnDefOptions
                         }
                     );
-                    const lastRow = execution.executionResult.paging.total[0];
-                    successCallback(rowData, lastRow);
+                    const { offset, count, total } = execution.executionResult.paging;
+                    // Backend returns incorrectly total: [1, N], when count: [0, N] and offset: [0, N]
+                    const lastRow = offset[0] === 0 && count[0] === 0 ? 0 : total[0];
                     onSuccess(execution, columnDefs);
+                    // There can never be more rows than maximum of offset and count
+                    successCallback(rowData, lastRow);
+
                     return execution;
                 }
             );
@@ -261,12 +348,18 @@ export class PivotTableInner extends
     public componentWillReceiveProps(
         nextProps: IPivotTableProps & ILoadingInjectedProps & IDataSourceProviderInjectedProps
     ) {
-        const { resultSpec, getPage } = this.props;
-        if (
-            !isEqual(resultSpec, nextProps.resultSpec)
-            || getPage !== nextProps.getPage
-        ) {
-            this.createDataSource(resultSpec, getPage);
+        const propsRequiringNewDataSource = [
+            'afm',
+            'resultSpec',
+            'getPage',
+            // drillable items need fresh execution because drillable context for row attribute is kept in rowData
+            // It could be refactored to assign drillability without execution,
+            // but it would suffer a significant performance hit
+            'drillableItems'
+        ];
+
+        if (propsRequiringNewDataSource.some(propKey => !isEqual(this.props[propKey], nextProps[propKey]))) {
+            this.createDataSource(nextProps.resultSpec, nextProps.getPage);
             this.setGridDataSource();
         }
     }
@@ -324,11 +417,24 @@ export class PivotTableInner extends
         return className;
     }
 
+    public getExecution = () => {
+        return this.state.execution;
+    }
+
     public createDataSource(resultSpec: AFM.IResultSpec, getPage: IGetPage) {
         const onSuccess = (execution: Execution.IExecutionResponses, columnDefs: IGridHeader[]) => {
-            this.setState({ execution, columnDefs });
+            if (!isEqual(columnDefs, this.state.columnDefs)) {
+                this.setState({
+                    columnDefs
+                });
+            }
+            if (!isEqual(execution, this.state.execution)) {
+                this.setState({
+                    execution
+                });
+            }
         };
-        this.gridDataSource = getGridDataSource(resultSpec, getPage, onSuccess);
+        this.gridDataSource = getGridDataSource(resultSpec, getPage, this.getExecution, onSuccess);
     }
 
     public onGridReady = (params: GridReadyEvent) => {
@@ -337,6 +443,7 @@ export class PivotTableInner extends
     }
 
     public setGridDataSource() {
+        this.setState({ execution: null });
         this.gridApi.setDatasource(this.gridDataSource);
     }
 
@@ -399,9 +506,9 @@ export class PivotTableInner extends
 
             // Basic options
             suppressMovableColumns: true,
-            enableSorting: false,
             enableFilter: false,
             enableColResize: true,
+            enableServerSideSorting: true,
 
             // infinite scrolling model
             rowModelType: 'infinite',
@@ -412,6 +519,13 @@ export class PivotTableInner extends
             infiniteInitialRowCount: pageSize,
             maxBlocksInCache: 10,
             onGridReady: this.onGridReady,
+
+            // this provides persistent row selection (if enabled)
+            getRowNodeId: (item) => {
+                return Object.keys(item.drillItemMap).map(
+                    key => `${key}${ID_SEPARATOR}${item.drillItemMap[key].uri.split('elements?id=').reverse()[0]}`
+                ).join(FIELD_SEPARATOR);
+            },
 
             // Column types
             columnTypes: {
@@ -434,8 +548,7 @@ export class PivotTableInner extends
             // Custom renderers
             frameworkComponents: {
                 // any is needed here because of incompatible types with AgGridReact types
-                // loading indicator
-                loadingRenderer: RowLoadingElement as any,
+                loadingRenderer: RowLoadingElement as any, // loading indicator
                 agColumnHeader: PivotHeader as any
             }
         };
@@ -456,9 +569,14 @@ export class PivotTableInner extends
         ) : null;
 
         return (
-            <div className="ag-theme-balham s-pivot-table" style={{ height: '100%', position: 'relative' }}>
+            <div
+                key="PivotTable"
+                className="ag-theme-balham s-pivot-table"
+                style={{ height: '100%', position: 'relative' }}
+            >
                 {tableLoadingOverlay}
                 <AgGridReact
+                    key="PivotTable"
                     {...gridOptions}
                 />
             </div>

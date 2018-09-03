@@ -107,7 +107,7 @@ $border-color: #BDC3C7;
       vertical-align: bottom;
     }
   }
-  &-arrow-down::before {
+  &-arrow-up::before {
     top: -2px;
     transform: rotate(180deg);
   }

@@ -7,7 +7,7 @@ import '@gooddata/react-components/styles/css/main.css';
 
 import {
     projectId,
-    yearDateIdentifier,
+    quarterDateIdentifier,
     monthDateIdentifier,
     locationStateDisplayFormIdentifier,
     locationNameDisplayFormIdentifier,
@@ -123,9 +123,9 @@ export class PivotTableExample extends Component {
             {
                 visualizationAttribute: {
                     displayForm: {
-                        identifier: yearDateIdentifier
+                        identifier: quarterDateIdentifier
                     },
-                    localIdentifier: 'year'
+                    localIdentifier: 'quarter'
                 }
             },
             {
@@ -146,6 +146,14 @@ export class PivotTableExample extends Component {
                     rows={attributes}
                     columns={columns}
                     pageSize={20}
+                    sortBy={
+                        [{
+                            attributeSortItem: {
+                                direction: 'asc',
+                                attributeIdentifier: 'menu'
+                            }
+                        }]
+                    }
                 />
             </div>
         );

@@ -7,6 +7,8 @@ import {
     getFields,
     getRow,
     getMinimalRowData,
+    assortDimensionHeaders,
+    assignSorting,
     executionToAGGridAdapter,
     sanitizeField,
     getMeasureDrillItem,
@@ -306,6 +308,32 @@ describe('getMinimalRowData', () => {
                 fixtures.pivotTableWithColumnAndRowAttributes.executionResult.headerItems[0]
             )
         ).toBe(data);
+    });
+});
+
+describe('assortDimensionHeaders', () => {
+    it('should return attribute and measure dimension headers', () => {
+        const dimensions = fixtures.pivotTableWithColumnAndRowAttributes.executionResponse.dimensions;
+        const { attributeHeaders, measureHeaderItems } = assortDimensionHeaders(dimensions);
+        expect(attributeHeaders).toHaveLength(4);
+        expect(attributeHeaders.filter(header => Execution.isAttributeHeader(header))).toHaveLength(4);
+        expect(measureHeaderItems).toHaveLength(4);
+        expect(measureHeaderItems.filter(header => header.hasOwnProperty('measureHeaderItem'))).toHaveLength(4);
+    });
+});
+
+describe('assignSorting', () => {
+    const ASC = 'asc';
+    const sortingMap = { a_1234: ASC };
+    it('should assign sort property to the colDef with matching field', () => {
+        const colDef = { field: 'a_1234' };
+        assignSorting(colDef, sortingMap);
+        expect(colDef).toEqual({ field: 'a_1234', sort: 'asc' });
+    });
+    it('should return identical', () => {
+        const colDef = { field: 'a_5678' };
+        assignSorting(colDef, sortingMap);
+        expect(colDef).toEqual({ field: 'a_5678' });
     });
 });
 

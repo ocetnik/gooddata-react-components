@@ -38,9 +38,11 @@ describe('PivotTable', () => {
             const endRow = 0;
             const successCallback = jest.fn();
             const onSuccess = jest.fn();
+            const sortModel: any[] = [];
+            const getExecution = () => pivotTableWithColumnAndRowAttributes;
 
-            const gridDataSource = getGridDataSource(resultSpec, getPage, onSuccess);
-            await gridDataSource.getRows({ startRow, endRow, successCallback } as any);
+            const gridDataSource = getGridDataSource(resultSpec, getPage, getExecution, onSuccess);
+            await gridDataSource.getRows({ startRow, endRow, successCallback, sortModel } as any);
             expect(getPage).toHaveBeenCalledWith(resultSpec, [0, undefined], [0, undefined]);
             expect(successCallback.mock.calls[0]).toMatchSnapshot();
             expect(onSuccess.mock.calls[0]).toMatchSnapshot();
